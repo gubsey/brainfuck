@@ -15,20 +15,27 @@ const Ins = enum {
 };
 
 pub fn main() !void {
-    const args = try std.process.argsAlloc(std.heap.page_allocator);
-    const file = args[1];
-    const instructions = try lex(file);
+    var GPA = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = GPA.deinit();
+    const gpa = GPA.allocator();
 
-    try run(instructions);
+    const args = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args);
+    //defer gpa.free(args);
+    const file = args[1];
+    const instructions = try lex(file, gpa);
+    defer gpa.free(instructions);
+
+    try run(instructions, gpa);
 }
 
-fn lex(file_name: []const u8) ![]Ins {
+fn lex(file_name: []const u8, alloc: Allocater) ![]Ins {
     var file = try std.fs.cwd().openFile(file_name, .{});
     defer file.close();
 
     var reader = file.reader();
 
-    var ar = std.ArrayList(Ins).init(std.heap.page_allocator);
+    var ar = std.ArrayList(Ins).init(alloc);
 
     while (true) {
         const b = reader.readByte() catch break;
@@ -60,6 +67,7 @@ const Pair = struct {
 fn bracket_pairs(instructions: []Ins, alloc: Allocater) ![]Pair {
     var r = std.ArrayList(Pair).init(alloc);
     var stack = std.ArrayList(Pair).init(alloc);
+    defer stack.deinit();
 
     for (instructions, 0..) |ins, i| {
         switch (ins) {
@@ -76,12 +84,12 @@ fn bracket_pairs(instructions: []Ins, alloc: Allocater) ![]Pair {
     return try r.toOwnedSlice();
 }
 
-fn run(instructions: []Ins) !void {
-    var GPA = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = GPA.allocator();
-    const tape = try List.init(gpa, 0);
+fn run(instructions: []Ins, alloc: Allocater) !void {
+    const tape = try List.init(alloc, 0);
+    defer tape.deinit();
 
-    const pairs = try bracket_pairs(instructions, gpa);
+    const pairs = try bracket_pairs(instructions, alloc);
+    defer alloc.free(pairs);
 
     var ndx: usize = 0;
     while (ndx < instructions.len) : (ndx += 1) {
@@ -121,6 +129,18 @@ fn LinkedList(comptime T: type) type {
             right: ?*Node = null,
         };
 
+        fn deinit(self: *@This()) void {
+            var cur = self.first;
+            while (cur.right) |x| {
+                self.alloc.destroy(cur);
+                cur = x;
+                self.len -= 1;
+            }
+
+            self.alloc.destroy(cur);
+            self.alloc.destroy(self);
+        }
+
         fn init(alloc: Allocater, default: T) !*LinkedList(T) {
             const list = try alloc.create(LinkedList(T));
             const node = try alloc.create(Node);
@@ -144,6 +164,7 @@ fn LinkedList(comptime T: type) type {
                 self.cur = x;
             } else {
                 const node = try self.alloc.create(Node);
+
                 node.* = .{ .data = self.default, .left = self.cur };
 
                 self.cur.right = node;
@@ -158,6 +179,7 @@ fn LinkedList(comptime T: type) type {
                 self.cur = x;
             } else {
                 const node = try self.alloc.create(Node);
+
                 node.* = .{ .data = self.default, .right = self.cur };
 
                 self.cur.left = node;
