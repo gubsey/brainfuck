@@ -3,7 +3,6 @@ const Tape = @import("./tape.zig").Tape(i32);
 const std = @import("std");
 const Allocater = std.mem.Allocator;
 
-
 const Ins = enum {
     Right,
     Left,
@@ -92,6 +91,9 @@ fn run(instructions: []Ins, alloc: Allocater) !void {
     const pairs = try bracket_pairs(instructions, alloc);
     defer alloc.free(pairs);
 
+    const stdout = std.io.getStdOut().writer();
+    const stdin = std.io.getStdIn().reader();
+
     var ndx: usize = 0;
     while (ndx < instructions.len) : (ndx += 1) {
         const ins = instructions[ndx];
@@ -100,8 +102,8 @@ fn run(instructions: []Ins, alloc: Allocater) !void {
             Ins.Left => try tape.move_left(),
             Ins.Increment => tape.cur.data += 1,
             Ins.Decrement => tape.cur.data -= 1,
-            Ins.Output => std.debug.print("{c}", .{@as(u8, @intCast(tape.cur.data))}),
-            Ins.Input => tape.cur.data = try std.io.getStdIn().reader().readByte(),
+            Ins.Output => try stdout.writeByte(@as(u8, @intCast(tape.cur.data))),
+            Ins.Input => tape.cur.data = try stdin.readByte(),
             Ins.Open => if (tape.cur.data == 0) {
                 for (pairs) |pair| {
                     if (pair.open == ndx) {
